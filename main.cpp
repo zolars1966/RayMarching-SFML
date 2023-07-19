@@ -65,7 +65,7 @@ int main() {
     
     Shader fragShader;
     
-    if (!fragShader.loadFromFile(resourcePath() + "Shader.frag", Shader::Fragment)){
+    if (!fragShader.loadFromFile(resourcePath() + "Shader.glsl", Shader::Fragment)){
         printf("can't find this shader");
         return -1;
     }
