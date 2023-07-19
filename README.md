@@ -3,11 +3,11 @@ C++ and GLSL with SFML version of Ray-Marching Algorithm (I'm too lazy for expla
 
 # Videos
 
-https://github.com/ckreesher/RayMarching-SFML/assets/70763346/89b21831-3987-4e74-80b1-ae1e4b664ea3
-
-
 https://github.com/ckreesher/RayMarching-SFML/assets/70763346/86753c8b-f217-4fa5-a3a4-b01ff65bfa31
 
+https://github.com/ckreesher/RayMarching-SFML/assets/70763346/c88ba03e-bc41-4efb-ac1f-3688b840daa6
+
+https://github.com/ckreesher/RayMarching-SFML/assets/70763346/89b21831-3987-4e74-80b1-ae1e4b664ea3
 
 # Images
 ![screenshot copy](https://github.com/ckreesher/RayMarching-SFML/assets/70763346/543f734e-61ad-4bae-8a4c-9f4b3d79a0d7)
