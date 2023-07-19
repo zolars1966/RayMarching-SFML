@@ -1,16 +1,8 @@
 #include <SFML/Graphics.hpp>
-#include <SFML/OpenGL.hpp>
 #include <SFML/Window.hpp>
 #include <iostream>
 #include <cmath>
 #include <ctime>
-
-#define NS_PRIVATE_IMPLEMENTATION
-#define CA_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-#include <Foundation/Foundation.hpp>
-#include <Metal/Metal.hpp>
-#include <QuartzCore/QuartzCore.hpp>
 
 // Including resource files path
 
@@ -52,12 +44,6 @@ Vector3f normalize(Vector3f v){
 // Main function
 
 int main() {
-    FPS fps;
-    
-    RenderWindow window(VideoMode(WIDTH, HEIGHT), "Ray Marching v4.0");
-    window.setFramerateLimit(60);
-    window.setVerticalSyncEnabled(true);
-    
     if (!Shader::isAvailable()){
         printf("Shaders is not supported");
         return -1;
@@ -69,19 +55,19 @@ int main() {
         printf("can't find this shader");
         return -1;
     }
+    
+    FPS fps;
+    RenderWindow window(VideoMode(WIDTH, HEIGHT), "Ray Marching v4.0");
+    window.setFramerateLimit(60);
+    window.setVerticalSyncEnabled(true);
 
-    ContextSettings settings = window.getSettings();
-    std::cout << settings.depthBits << " " << settings.stencilBits << " " << settings.antialiasingLevel;
     // Camera Varibales
     
-    Vector3f CameraPos = {0, 2.5, -5}, MeshPos = {0., 0., 0.};
-//    Vector3f CameraPos = {4.307, -0.093, 11.87}, MeshPos = {0., 0., 0.};
-    Vector2i omPos = Mouse::getPosition();
-    float mouseX = H_WIDTH, mouseY = H_HEIGHT;
-//    float mouseX = -3787, mouseY = 410;
-    float MeshScale = 0.726f, ma = 0.f, Pfov = 10., alpha = 1./64;
-    bool cursorLocked = true, record = 0, freeMov = 1, useAllining = true;
-    int frNum = 0, tick = 0, frStill = 1, frForRenderNum = 512, raysPerPixel = 16;
+    Vector3f CameraPos = {0, 12, -36}, MeshPos = {0., 0., 0.};
+    Vector2i om_pos = Mouse::getPosition();
+    float MeshScale = 0.726f, ma = 0.f, Pfov = 10., mouseX = H_WIDTH, mouseY = H_HEIGHT, alpha = 1./64;
+    bool cursorLocked = true, trace = 0, record = 0, free_mov = 1, pers = 1, heavy = 0;
+    int fr_num = 0, tick = 0, mode = 1, rpp = 256;
     
     // Main cycle
     
@@ -94,14 +80,13 @@ int main() {
                 window.close();
             
             if (event.type == Event::KeyPressed){
-                if (Keyboard::isKeyPressed(Keyboard::F)) raysPerPixel *= 2;
-                if (Keyboard::isKeyPressed(Keyboard::G)) { raysPerPixel = 1; alpha = 1.f; MeshPos = {0.365, -0.52, 0.36}; MeshScale = 0.726; }
-                if (Keyboard::isKeyPressed(Keyboard::Escape)) cursorLocked ^= 1, !cursorLocked ? omPos = Mouse::getPosition(), 1 : 0;
-                if (Keyboard::isKeyPressed(Keyboard::T)) window.clear(), useAllining ^= 1, frStill *= useAllining;
-                if (Keyboard::isKeyPressed(Keyboard::V)) freeMov ^= 1;
-                if (Keyboard::isKeyPressed(Keyboard::P)) printf("Camera position: %f %f %f, camera rotation: %f %f \n", CameraPos.x, CameraPos.y, CameraPos.z, mouseX, mouseY);
-                if (Keyboard::isKeyPressed(Keyboard::R)) record ^= 1, window.clear(), window.display(), tick = 1, frForRenderNum = max(256 * record, 1), alpha = 4.f / frForRenderNum, printf(record ? "Recording started\n" : "Recording stopped\n");
-                frStill = 1;
+                if (Keyboard::isKeyPressed(Keyboard::F)) alpha /= 2.f;
+                if (Keyboard::isKeyPressed(Keyboard::G)) { alpha = 1.f; MeshPos = {0.365, -0.52, 0.36}; MeshScale = 0.726; }
+                if (Keyboard::isKeyPressed(Keyboard::Escape)) cursorLocked ^= 1, !cursorLocked ? om_pos = Mouse::getPosition(), 1 : 0;
+                if (Keyboard::isKeyPressed(Keyboard::T)) trace ^= 1;
+                if (Keyboard::isKeyPressed(Keyboard::V)) free_mov ^= 1;
+                // if (Keyboard::isKeyPressed(Keyboard::P)) printf("%f %f %f", MeshPos.x, MeshPos.y, MeshPos.z);
+                if (Keyboard::isKeyPressed(Keyboard::R)) record ^= 1, window.clear(), window.setFramerateLimit(60 * !record), window.setVerticalSyncEnabled(!record), trace = record, tick = 0, alpha = fmax(1/64., !record), printf(record ? "Recording started\n" : "Recording stopped\n");
             }
                 
             if (event.type == Event::MouseButtonPressed){
@@ -115,14 +100,13 @@ int main() {
         
         // Mouse Events
         
-        if (!cursorLocked && ((tick) % frForRenderNum == 1 || freeMov)){
-            Vector2i mPos = Mouse::getPosition();
-            float shift_x = omPos.x - mPos.x, shift_y = omPos.y - mPos.y;
-//            omPos = mPos;
+        if (!cursorLocked && ((tick) % rpp == 1 || free_mov)){
+            Vector2i m_pos = Mouse::getPosition();
+            float shift_x = om_pos.x - m_pos.x, shift_y = om_pos.y - m_pos.y;
+//            om_pos = m_pos;
             mouseX += shift_x;
             mouseY += shift_y;
-            if (shift_x != 0 || shift_y != 0) frStill = 1;
-            Mouse::setPosition(omPos);
+            Mouse::setPosition(om_pos);
         }
 
         float mx = ((float)mouseX / WIDTH - 0.5f), my = ((float)mouseY / HEIGHT - 0.5f);
@@ -131,13 +115,13 @@ int main() {
         
         Vector3f dir = Vector3f(0.0f, 0.0f, 0.0f), dirTemp;
         
-        if ((tick) % frForRenderNum == 1 || freeMov){
+        if ((tick) % rpp == 1 || free_mov){
             ma += 0.005 - 1.256 * (ma > 1.256);
             
-            if (Keyboard::isKeyPressed(Keyboard::W)) dir = Vector3f(0.0f, 0.0f, 1.0f), frStill = 1;
-            else if (Keyboard::isKeyPressed(Keyboard::S)) dir = Vector3f(0.0f, 0.0f, -1.0f), frStill = 1;
-            if (Keyboard::isKeyPressed(Keyboard::A)) dir += Vector3f(-1.0f, 0.0f, 0.0f), frStill = 1;
-            else if (Keyboard::isKeyPressed(Keyboard::D)) dir += Vector3f(1.0f, 0.0f, 0.0f), frStill = 1;
+            if (Keyboard::isKeyPressed(Keyboard::W)) dir = Vector3f(0.0f, 0.0f, 1.0f);
+            else if (Keyboard::isKeyPressed(Keyboard::S)) dir = Vector3f(0.0f, 0.0f, -1.0f);
+            if (Keyboard::isKeyPressed(Keyboard::A)) dir += Vector3f(-1.0f, 0.0f, 0.0f);
+            else if (Keyboard::isKeyPressed(Keyboard::D)) dir += Vector3f(1.0f, 0.0f, 0.0f);
         
 //            if (Keyboard::isKeyPressed(Keyboard::I)) MeshPos.z += 0.005f;
 //            else if (Keyboard::isKeyPressed(Keyboard::K)) MeshPos.z -= 0.005f;
@@ -149,8 +133,8 @@ int main() {
 //            if (Keyboard::isKeyPressed(Keyboard::Y)) MeshScale *= 1.05f;
 //            else if (Keyboard::isKeyPressed(Keyboard::H)) MeshScale *= 0.95f;
 
-            if (Keyboard::isKeyPressed(Keyboard::Q)) CameraPos.y -= 0.25f, frStill = 1;
-            else if (Keyboard::isKeyPressed(Keyboard::E)) CameraPos.y += 0.25f, frStill = 1;
+            if (Keyboard::isKeyPressed(Keyboard::Q)) CameraPos.y -= 0.25f;
+            else if (Keyboard::isKeyPressed(Keyboard::E)) CameraPos.y += 0.25f;
             
             
 //            if (Keyboard::isKeyPressed(Keyboard::X)) Pfov -= 0.25f;
@@ -172,21 +156,18 @@ int main() {
         
         // Shader applying
         
-        fragShader.setUniform("resolution", resolution);
-        fragShader.setUniform("rayOrigin", CameraPos);
-//        fragShader.setUniform("mo", MeshPos);
-//        fragShader.setUniform("ms", MeshScale);
+        fragShader.setUniform("asp_rat", Vector2f(resolution.x / resolution.y / 2.f, 0.5f));
+        fragShader.setUniform("sy", resolution.y);
+        fragShader.setUniform("ro", CameraPos);
+        fragShader.setUniform("mo", MeshPos);
+        fragShader.setUniform("ms", MeshScale);
         fragShader.setUniform("u_mouse", Vector2f(mx, my));
         fragShader.setUniform("time", (clock()/(float)CLOCKS_PER_SEC) - int(clock()/(float)CLOCKS_PER_SEC));
-        
-        fragShader.setUniform("rand0", ((float) rand() / (RAND_MAX)) - 0.5f);
-        fragShader.setUniform("rand1", ((float) rand() / (RAND_MAX)) - 0.5f);
-        fragShader.setUniform("rand2", ((float) rand() / (RAND_MAX)) - 0.5f);
-        
-        fragShader.setUniform("alpha", 1.f / frStill);
+        fragShader.setUniform("rand", ((float) rand() / (RAND_MAX)) - 0.5f);
+        fragShader.setUniform("alpha", alpha);
+        fragShader.setUniform("trace", trace);
         fragShader.setUniform("tick", tick);
-        fragShader.setUniform("samples", raysPerPixel);
-//        fragShader.setUniform("heavy", heavy);
+        fragShader.setUniform("heavy", heavy);
 
         RenderStates shader(&fragShader);
         window.draw(rect, shader);
@@ -194,28 +175,24 @@ int main() {
         // Screen updating
 
         fps.update();
-        window.setTitle("Ray Marching v4.0 fps: " + to_string(fps.getFPS()) + (record ? " recording frame: " + to_string(frNum) : ""));
-        window.display();
+        window.setTitle("Ray Marching v4.0 fps: " + to_string(fps.getFPS()));
+        if (!record) window.display();
         
-        if (record && tick == 0){
+        if (record && tick % rpp == 0){
 //            window.display();
-            string str_num = to_string(frNum);
+            string str_num = to_string(fr_num);
             int z_num = 4 - str_num.size();
             string filename = resourcePath() + "../../../frames/" + string(z_num, '0') + str_num + ".png";
             Texture texture;
             texture.create(window.getSize().x, window.getSize().y);
             texture.update(window);
             texture.copyToImage().saveToFile(filename);
-            frNum++;
-            frStill = 0;
+            fr_num++;
             window.display();
             window.clear();
         }
         
         tick++;
-        tick %= frForRenderNum;
-        frStill += useAllining;
-//        frStill = min(256, frStill);
     }
 
     return 0;
