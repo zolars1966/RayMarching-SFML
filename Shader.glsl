@@ -1,37 +1,352 @@
 # version 120
 
-uniform vec2 resolution;
-uniform vec3 rayOrigin;
-uniform vec2 u_mouse;
+uniform vec2 asp_rat;
+uniform float sy;
+uniform vec3 ro;
+uniform vec3 mo;
 uniform float time;
+uniform vec2 u_mouse;
+uniform float alpha;
+uniform float ms;
+uniform float tx;
 uniform float tick;
-uniform float rand0;
+//uniform float rand;
 uniform float rand1;
 uniform float rand2;
-uniform float alpha;
+uniform float rand3;
+uniform int mode;
+uniform bool trace;
+uniform bool heavy;
 
-uniform sampler2D u_sample;
-uniform float u_sample_part;
-uniform int samples;
+// whatever direction/transformation should be applied to the rayDirection before normalizing it
+uniform vec3 Camera_dir;
 
-// Limits and quality settings
+// Quality
+#define MAX_STEPS (1000)
+#define MAX_DIST (1000.)
+#define SURFACE_DIST (0.01)
 
-#define MAX_DIST (100.)
-#define MAX_STEPS (100)
-#define MAX_REFRACTIONS 8
-vec3 light = normalize(vec3(-0.5, 0.75, -1.0));
-float seed;
-
+// Constants
 #define PHI (1.618033988749895)
 #define PI (3.14159265)
-#define fP(Primitive, PrimitiveN, PrimitiveC) it = Primitive; if(it.x > 0.0 && it.x < minIt.x) minIt = it, n = PrimitiveN, col = PrimitiveC;
-#define fL(Primitive, PrimitiveC) it = Primitive; if(it.x > 0.0 && it.x < minIt.x) minIt = it, col = PrimitiveC;
+
+#define fGDF(v) d = max(d, abs(dot(p, v)));
+#define fD(v) d = min(d, v)
+#define fDm(v) d = max(d, v)
+#define fC(c, alpha) col *= c, dir = reflect(dir, mix(normal, rand, alpha*alpha)); if (getDist(point + SURFACE_DIST * 3. * dir) < SURFACE_DIST) break; point += SURFACE_DIST * 2. * dir;
+#define fiD(v, c, alpha) if (v < SURFACE_DIST){ fC(c, alpha); continue; }
+
+// Light
+
+#define lightPos vec3(8, 3.2, 20)
+#define Light2(point) Dodecahedron(point - vec3(4.5, 0.25, 6), 1.0, tick*5.)
+#define Light(point) Sphere(point - lightPos, 0.5)
 
 float random(vec3 point){
-    return fract(sin(dot(point.zx * seed + point.y * rand0, vec2(12.9898 * seed, 78.233 / time))) * (43758.5453123 + rand2)) / 10.;
+    return fract(sin(dot(point.zx + point.y * time, vec2(12.9898 * time, 78.233 / time))) * (43758.5453123 + tick)) / 10.;
 }
+
+mat2 rot(float a){
+    float c = cos(a);
+    float s = sin(a);
+    return mat2(c, -s, s, c);
+}
+float smoothUnion(float d1, float d2, float k){
+    float h = clamp( 0.5 + 0.5*(d2-d1)/k, 0.0, 1.0 );
+    return mix( d2, d1, h ) - k*h*(1.0-h);
+}
+
+float Sphere(vec3 point, float r){ return length(point) - r; }
+float Plane(vec3 p, vec3 n){
+    return dot(p, n);
+}
+
+float Tetrahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p /= scale;
+    return max(abs(p.y) - 1., max(abs(p.x) * 0.866025 + p.z / 2., -p.z) - 0.39 * abs(1. - p.y)) * scale;
+}
+float Cube(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p /= scale;
+    vec3 q = abs(p) - 1.0;
+    return (length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 0.)) * scale;
+}
+float StellatedOctahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p /= scale;
+    vec3 p2 = p;
+    p2.zy *= rot(PI);
+    return min(Tetrahedron(p - vec3(0., 1., 0.), 1., 0.), Tetrahedron(p2, 1., 0.)) * scale;
+}
+float Octahedron_c(vec3 p, float scale, float angle){
+    p /= scale;
+    vec3 p2 = p;
+    p2.zy *= rot(PI);
+    return max(Tetrahedron(p - vec3(0., 1., 0.), 1.0, 0.), Tetrahedron(p2, 1.0, 0.)) * scale;
+}
+float Octahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p = abs(p) / scale;
+    float m = p.x + p.y + p.z - 1.0;
+    vec3 q;
+    if (3.0 * p.x < m) q = p.xyz;
+    else if (3.0 * p.y < m) q = p.yzx;
+    else if (3.0 * p.z < m) q = p.zxy;
+    else return m * 0.57735027;
+    
+    float k = clamp(0.5 * (q.z - q.y + 1.0), 0.0, 1.0);
+    return length(vec3(q.x, q.y - 1.0 + k, q.z - k)) * scale;
+}
+float Dodecahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p /= scale;
+    float d = 0.;
+
+    d = max(d, abs(dot(p, normalize(vec3(0, PHI, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(0, -PHI, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(1, 0, PHI)))));
+    d = max(d, abs(dot(p, normalize(vec3(-1, 0, PHI)))));
+    d = max(d, abs(dot(p, normalize(vec3(PHI, 1, 0)))));
+    d = max(d, abs(dot(p, normalize(vec3(-PHI, 1, 0)))));
+    
+    return d * scale - scale;
+}
+float Icosahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    p /= scale;
+    float d = 0.;
+    
+    d = max(d, abs(dot(p, normalize(vec3(1, 1, 1 )))));
+    d = max(d, abs(dot(p, normalize(vec3(-1, 1, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(1, -1, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(1, 1, -1)))));
+    d = max(d, abs(dot(p, normalize(vec3(0, 1, PHI + 1.)))));
+    d = max(d, abs(dot(p, normalize(vec3(0, -1, PHI + 1.)))));
+    d = max(d, abs(dot(p, normalize(vec3(PHI + 1., 0, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(-PHI - 1., 0, 1)))));
+    d = max(d, abs(dot(p, normalize(vec3(1, PHI + 1., 0)))));
+    d = max(d, abs(dot(p, normalize(vec3(-1, PHI + 1., 0)))));
+    
+    return d * scale - scale;
+}
+
+float TruncatedCube(vec3 point, float scale, float angle){
+    point.xz *= rot(angle);
+    return max(Cube(point, scale, 0.), Octahedron(point, scale * 2.375, 0.));
+}
+float Rhombicuboctahedron(vec3 point, float scale, float angle){
+    point.xz *= rot(angle);
+    float d = Cube(point, scale, 0.);
+    
+    vec3 p = point;
+    p.xy *= rot(3.1415926 / 4.);
+    fDm(Cube(p, scale, 0.));
+    
+    p = point;
+    p.yz *= rot(3.1415926 / 4.);
+    fDm(Cube(p, scale, 0.));
+    
+    p = point;
+    p.zx *= rot(3.1415926 / 4.);
+    fDm(Cube(p, scale, 0.));
+    
+    return max(d, Octahedron(point, scale * 1.825, 0.));
+}
+float StellatedRhombicuboctahedron(vec3 point, float scale, float angle){
+    point.xz *= rot(angle);
+    float d = Cube(point, scale, 0.);
+    
+    vec3 p = point;
+    p.xy *= rot(3.1415926 / 4.);
+    fD(Cube(p, scale, 0.));
+    
+    p = point;
+    p.yz *= rot(3.1415926 / 4.);
+    fD(Cube(p, scale, 0.));
+    
+    p = point;
+    p.zx *= rot(3.1415926 / 4.);
+    fD(Cube(p, scale, 0.));
+    
+    return min(d, Octahedron(point, scale * 1.825, 0.));
+}
+float StellatedCuboctahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    return min(Octahedron(p, scale, 0.), Cube(p, scale / 2., 0.)) * scale;
+}
+float Cuboctahedron(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    return max(Octahedron(p, scale, 0.), Cube(p, scale / 2., 0.));
+}
+
+// 0.7265 - tg(36)
+
+float FiveCubes(vec3 point, float scale, float angle){
+    point /= scale;
+    point.xz *= rot(angle);
+
+    float phi = 0.7265;
+    float d = Cube(point, phi, 0.);
+    vec3 p = point + vec3(-phi, -phi, phi);
+    
+    p.xz *= rot(0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(0.36);
+    d = min(d, Cube(p - vec3(-phi, -phi, phi), phi, 0.));
+
+    p = point + vec3(phi, -phi, phi);
+    p.xz *= rot(-0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(-0.36);
+    d = min(d, Cube(p - vec3(phi, -phi, phi), phi, 0.));
+
+    point.xz *= rot(PI);
+
+    p = point + vec3(-phi, -phi, phi);
+    p.xz *= rot(0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(0.36);
+    d = min(d, Cube(p - vec3(-phi, -phi, phi), phi, 0.));
+
+    p = point + vec3(phi, -phi, phi);
+    p.xz *= rot(-0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(-0.36);
+    d = min(d, Cube(p - vec3(phi, -phi, phi), phi, 0.));
+    
+    return d * scale;
+}
+float RhombicTriacontahedron(vec3 point, float scale, float angle){
+    point /= scale;
+    point.xz *= rot(angle);
+    
+    float phi = 0.7265;
+    float d = Cube(point, phi, 0.);
+    
+    vec3 p = point + vec3(-phi, -phi, phi);
+    p.xz *= rot(0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(0.36);
+    d = max(d, Cube(p - vec3(-phi, -phi, phi), phi, 0.));
+    
+    p = point + vec3(phi, -phi, phi);
+    p.xz *= rot(-0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(-0.36);
+    d = max(d, Cube(p - vec3(phi, -phi, phi), phi, 0.));
+    
+    point.xz *= rot(PI);
+    
+    p = point + vec3(-phi, -phi, phi);
+    p.xz *= rot(0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(0.36);
+    d = max(d, Cube(p - vec3(-phi, -phi, phi), phi, 0.));
+    
+    p = point + vec3(phi, -phi, phi);
+    p.xz *= rot(-0.365);
+    p.yz *= rot(-0.52);
+    p.xy *= rot(-0.36);
+    d = max(d, Cube(p - vec3(phi, -phi, phi), phi, 0.));
+    
+    return d * scale;
+}
+float StellatedIcosaDodecahedron(vec3 point, float scale, float angle){
+    point.xz *= rot(angle);
+    return min(Dodecahedron(point, scale, 0.), Icosahedron(point, 1.095 * scale, 0.));
+}
+float IcosaDodecahedron(vec3 point, float scale, float angle){
+    point.xz *= rot(angle);
+    return max(Dodecahedron(point, scale, 0.), Icosahedron(point, 1.095 * scale, 0.));
+}
+float ZolarsFractal(vec3 point, float angle){
+    point.xz *= rot(angle);
+    
+    float d = Cube(point, 1., 0.);
+    fD(Cube(point - vec3(1.5, 0.5, 0.5), 0.5, 0.));
+    fD(Cube(point - vec3(0.5, 0.5, -1.5), 0.5, 0.));fD(Cube(point - vec3(-1.5, -0.5, -0.5), 0.5, 0.));fD(Cube(point - vec3(-0.5, -0.5, 1.5), 0.5, 0.));fD(Cube(point - vec3(-0.5, 1.5, 0.5), 0.5, 0.));fD(Cube(point - vec3(0.5, -1.5, -0.5), 0.5, 0.));
+    
+    //    fD(Cube(point - vec3(2.25, 0.75, 0.75), 0.25));fD(Cube(point - vec3(1.25, 0.75, -1.25), 0.25));fD(Cube(point - vec3(0.25, -0.25, 1.75), 0.25));fD(Cube(point - vec3(0.25, 1.75, 0.75), 0.25));fD(Cube(point - vec3(1.25, -1.25, -0.25), 0.25));
+    //    fD(Cube(point - vec3(1.75, 0.75, -0.25), 0.25));fD(Cube(point - vec3(0.75, 0.75, -2.25), 0.25));fD(Cube(point - vec3(-1.25, -0.25, -1.25), 0.25));fD(Cube(point - vec3(-0.25, 1.75, -0.25), 0.25));fD(Cube(point - vec3(0.75, -1.25, -1.25), 0.25));
+    //    fD(Cube(point - vec3(-0.25, 0.25, -1.75), 0.25));fD(Cube(point - vec3(-2.25, -0.75, -0.75), 0.25));fD(Cube(point - vec3(-1.25, -0.75, 1.25), 0.25));fD(Cube(point - vec3(-1.25, 1.25, 0.25), 0.25));fD(Cube(point - vec3(-0.25, -1.75, -0.75), 0.25));
+    //    fD(Cube(point - vec3(1.25, 0.25, 1.25), 0.25));fD(Cube(point - vec3(-1.75, -0.75, 0.25), 0.25));fD(Cube(point - vec3(-0.75, -0.75, 2.25), 0.25));fD(Cube(point - vec3(-0.75, 1.25, 1.25), 0.25));fD(Cube(point - vec3(0.25, -1.75, 0.25), 0.25));
+    //    fD(Cube(point - vec3(1.25, 1.25, 0.75), 0.25));fD(Cube(point - vec3(0.25, 1.25, -1.25), 0.25));fD(Cube(point - vec3(-1.75, 0.25, -0.25), 0.25));fD(Cube(point - vec3(-0.75, 0.25, 1.75), 0.25));fD(Cube(point - vec3(-0.75, 2.25, 0.75), 0.25));
+    //    fD(Cube(point - vec3(1.75, -0.25, 0.25), 0.25));fD(Cube(point - vec3(0.75, -0.25, -1.75), 0.25));fD(Cube(point - vec3(-1.25, -1.25, -0.75), 0.25));fD(Cube(point - vec3(-0.25, -1.25, 1.25), 0.25));fD(Cube(point - vec3(0.75, -2.25, -0.75), 0.25));
+    
+    return d;
+}
+float FiveOctahedrons(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    
+    float d = Octahedron(p, scale, 0.);
+    
+    for (int i = 0; i < 5; i++){
+        p.xz *= rot(0.355); p.zy *= rot(-0.515); p.yx *= rot(-1.21);
+        fD(Octahedron(p, scale, 0.));
+    }
+
+    return d;
+}
+float FiveTetrahedrons(vec3 p, float scale, float angle){
+    p.xz *= rot(angle);
+    
+    float d = Tetrahedron(p, scale, 0.);
+    
+    for (int i = 0; i < 5; i++){
+        p.xz *= rot(mo.x); p.zy *= rot(mo.y); p.yx *= rot(mo.z);
+        fD(Tetrahedron(p, scale, 0.));
+    }
+    
+    return d;
+}
+
+float Cone(vec3 p, vec2 c, float h){
+    float q = length(p.xz);
+    return max(dot(c.xy,vec2(q,p.y)),-h-p.y);
+}
+float Heart(vec3 point){
+    float md = smoothUnion(Sphere(point - vec3(0.5, 1.5, 6), 1.), Sphere(point - vec3(1.5, 1.5, 6), 1.), 0.1);
+    point -= vec3(1, -0.5, 6);
+    point.zy *= rot(PI);
+    point.x *= 0.63;
+    return smoothUnion(md, Cone(point, vec2(1.1, 0.5), 1.5), 0.2);
+}
+float Cylinder( vec3 p, float h, float r ){
+    vec2 d = abs(vec2(length(p.xz),p.y)) - vec2(r,h);
+    return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+float Candle(vec3 point){
+    float d = Cylinder(point - vec3(-1, -0.75, 2), 0.223, 0.874);
+    fD(Cylinder(point - vec3(-1, -0.527, 2), 0.063, 0.774));
+    fD(Cylinder(point - vec3(-1, 0.375, 2), 1.5, 0.1625) + random(point) / 10.);
+    fD(Cylinder(point - vec3(-1, 1.875, 2), 0.15, 0.0173));
+
+    return d;
+}
+
+float cubecut(vec3 point){
+    float d = max(Cube(point - vec3(8, 0, 30), 1., 0.), -Sphere(point - vec3(7.5, 0.25, 29.5), 1.));
+    
+    return d;
+}
+
+// Calculation next step
+
+float getDist(vec3 point){
+    float d = Plane(point - vec3(0, -1, 0), vec3(0., 1., 0.));
+    
+    if (trace) fD(Light(point));
+
+    fD(Cube(point - vec3(4.4, 2, 29), 4., PI / 12.));
+    
+    return d;
+}
+
+// Normal to a surface
+
 vec3 randomOnSphere(vec3 point){
-    vec2 epsilon = vec2(0.001, 0);
+    vec2 epsilon = vec2(SURFACE_DIST, 0);
     vec3 normal = vec3(
                     random(point) - random(point.zyx),
                     random(point.yxz) - random(point.zxy),
@@ -41,130 +356,120 @@ vec3 randomOnSphere(vec3 point){
     return normal;
 }
 
-mat2 rot(float a){
-    float c = cos(a);
-    float s = sin(a);
-    return mat2(c, -s, s, c);
-}
-
-vec3 getSky(vec3 rd) {
-    vec3 col = vec3(0.3, 0.6, 1.0);
-    vec3 sun = vec3(0.95, 0.9, 1.0);
-    sun *= max(0.0, pow(dot(rd, light), 256.0));
-    col *= max(0.0, dot(light, vec3(0.0, 0.0, -1.0)));
-    return clamp(sun + col * 0.01, 0.0, 1.0);
-}
-
-vec2 Sphere(in vec3 ro, in vec3 rd, in float ra){
-    float b = dot(ro, rd);
-    float c = dot (ro, ro) - ra * ra;
-    float h = b * b - c;
-
-    if(h < 0.0) return vec2(-1.0);
-
-    h = sqrt(h);
-
-    return vec2(-b - h, -b + h);
-}
-vec2 Box(in vec3 ro, in vec3 rd, in vec3 rad, out vec3 oN){
-    vec3 m = 1.0 / rd;
-    vec3 n = m * ro;
-    vec3 k = abs(m) * rad;
-    vec3 t1 = -n - k;
-    vec3 t2 = -n + k;
-    float tN = max(max(t1.x, t1.y), t1.z);
-    float tF = min(min(t2.x, t2.y), t2.z);
-    if(tN > tF || tF < 0.0) return vec2(-1.0);
-    oN = -sign(rd) * step(t1.yzx, t1.xyz) * step(t1.zxy, t1.xyz);
-    return vec2(tN, tF);
-}
-float Plane(in vec3 ro, in vec3 rd, in vec4 p) {
-    return -(dot(ro, p.xyz) + p.w) / dot(rd, p.xyz);
-}
-
-vec4 castRay(inout vec3 ro, inout vec3 rd){
-    vec4 col;
-    vec2 minIt = vec2(MAX_DIST), it;
-    vec3 n, boxN, boxN2, spherePos = vec3(-1.3, 0, 5), boxPos = vec3(2, 0, 5), planeNormal = vec3(0, 1, 0);
+vec3 getNormal(vec3 point){
+    vec2 epsilon = vec2(SURFACE_DIST, 0);
+    vec3 normal = vec3(
+                       getDist(point + epsilon.xyy) - getDist(point - epsilon.xyy),
+                       getDist(point + epsilon.yxy) - getDist(point - epsilon.yxy),
+                       getDist(point + epsilon.yyx) - getDist(point - epsilon.yyx)
+                       );
     
-    fL(Box(ro - vec3(0, 6, 3), rd, vec3(1, 0.001, 1), boxN), vec4(vec3(1), -2));
+    return normalize(normal);
+}
 
-    fP(Sphere(ro - spherePos, rd, 1.0), normalize(ro + rd * it.x - spherePos), vec4(1, 0.1, 0.1, 0.));
-    fL(Sphere(ro - vec3(-0.5, -0.8, 4.5), rd, 0.2), vec4(0.01 , 0.8, 0.02, -2));
-    fP(Sphere(ro - vec3(-2.1, -0.4, 3.6), rd, 0.6), normalize(ro + rd * it.x - vec3(-2.1, -0.4, 3.6)), vec4(vec3(0.1, 0.9, 0.2), 1));
-    fP(Sphere(ro - vec3(0.2, -0.5, 3), rd, 0.5), normalize(ro + rd * it.x - vec3(0.2, -0.5, 3)), vec4(vec3(1), -0.5));
-    fL(Sphere(ro - vec3(0.8, -0.6, 6.8), rd, 0.4), vec4(vec3(0.392, 0.254, 0), -2));
-    fP(Box(ro - vec3(1.6, 1.4, 5.8), rd, vec3(0.4), boxN2), boxN2, vec4(vec3(0.392, 0.254, 0.1), 1));
-    fP(Box(ro - boxPos, rd, vec3(1), boxN), boxN, vec4(0.2, 0.2, 0.8, 0.25));
-    fP(vec2(Plane(ro, rd, vec4(planeNormal, 1))), planeNormal, vec4(vec3(0.9), 1));
-    
-    fP(vec2(Plane(ro - vec3(2.5, 0, 0), rd, vec4(-1, 0, 0, 1))), vec3(-1, 0, 0), vec4(vec3(0.1, 0.9, 0.1), 1));
-    fP(vec2(Plane(ro - vec3(-2.5, 0, 0), rd, vec4(1, 0, 0, 1))), vec3(1, 0, 0), vec4(vec3(0.9, 0.1, 0.1), 1));
-    fP(vec2(Plane(ro - vec3(0, 0, 8), rd, vec4(0, 0, -1, 1))), vec3(0, 0, -1), vec4(vec3(0.9), 1));
-    fP(vec2(Plane(ro - vec3(0, 5, 0), rd, vec4(0, -1, 0, 1))), vec3(0, -1, 0), vec4(vec3(0.9), 1));
+vec3 rayMarch(vec3 origin, vec3 o_dir){
+    float totalDist = 0.;
+    float minLightDist = MAX_DIST;
+    int r = 0;
 
-//    if (minIt.x == MAX_DIST) return vec4(vec3(0.8, 0.96, 1), -2);
-    if (minIt.x == MAX_DIST) return vec4(getSky(rd), -2);
-    if (col.a == -2.) return col;
-    
-    vec3 reflected = reflect(rd, n);
-    if(col.a < 0.0) {
-        float fresnel = 1.0 - abs(dot(-rd, n));
-        float rnd = random(ro);
-        rnd -= int(rnd);
-        if(abs(rnd) + 0.25 < fresnel * fresnel) {
-            rd = reflected;
-            return col;
+//    vec3 col = vec3(0.786, 0.633, 0.335);
+    vec3 col = vec3(1);
+//    vec3 col = vec3(0.63, 0.36, 0.1);
+    vec3 dir = o_dir;
+    vec3 point = origin;
+
+    for (int i = 0; i <= MAX_STEPS; i++){
+        float dist = getDist(point);
+        totalDist += dist;
+        point += dist * dir;
+
+        minLightDist = min(Light(point), minLightDist);
+
+        if (Light(point) < SURFACE_DIST) break;
+        if (dist < SURFACE_DIST){
+            vec3 rand = randomOnSphere(point), normal = getNormal(point);
+            rand = normalize(rand * (dot(rand, normal)));
+
+            fiD(Cube(point - vec3(4.4, 2, 29), 4., PI / 12.), vec3(0.5), 0.2);
+            
+            fC(vec3(0.5), 0.9);
+            
+            r++;
         }
-        ro += rd * (minIt.y + 0.001);
-        rd = refract(rd, n, 1.0 / (1.0 - col.a));
-        return col;
+
+//        if (r > 8 || i == MAX_STEPS || totalDist > MAX_DIST){ col *= 0.; break; }
+        if (totalDist > MAX_DIST) break;
     }
     
-    ro += rd * (minIt.x - 0.001);
-    vec3 rand = randomOnSphere(ro);
-    rand = normalize(rand * dot(rand, n));
-    rd = mix(reflect(rd, n), rand, col.a * col.a);
-//    rd = reflect(rd, n);
-    
+    // Luminance calculating
+//    col /= totalDist * totalDist;
+    col /= minLightDist;
+    col /= Light(point);
+
     return col;
 }
 
-vec3 traceRay(vec3 ro, vec3 rd){
-    vec3 col = vec3(1);
-    for(int i = 0; i < MAX_REFRACTIONS; i++){
-        vec4 refCol = castRay(ro, rd);
-        col *= refCol.rgb;
-        if (refCol.a == -2.) return col;
+float rayMarch_s(vec3 origin, vec3 dir){
+    float totalDist = 0.;
+    
+    for (int i = 0; i < MAX_STEPS; i++){
+        vec3 point = origin + totalDist * dir;
+        float dist = getDist(point);
+        totalDist += dist;
+        
+        if (totalDist > MAX_DIST || dist < SURFACE_DIST)
+            break;
     }
-    return vec3(0);
+
+    return totalDist;
+}
+
+vec3 getLight(vec3 point, vec3 origin){
+    vec3 pointToLight = lightPos - point;
+    vec3 lightVec = normalize(pointToLight);
+    vec3 normal = getNormal(point);
+
+    float distSqPtLght = dot(pointToLight, pointToLight);
+
+    const vec3  diffColor = vec3(1, 1, 1);
+    const vec3  specColor = vec3(1, 1, 1);
+    const float specPower = 30.0;
+
+    vec3 v2 = normalize(origin - point);
+    vec3 r = reflect ( -v2, normal );
+    vec3 diff = diffColor * max ( dot ( normal, lightVec ), 0.0 );
+    vec3 spec = specColor * pow ( max ( dot ( lightVec, r ), 0.0 ), specPower );
+
+    vec3 light = diff + spec;
+
+    float dist = rayMarch_s(point + 2. * SURFACE_DIST * normal, lightVec);
+    if (dist*dist < distSqPtLght) light *= 0.5;
+
+    return light;
 }
 
 void main(){
-    vec2 uv = gl_FragCoord.xy / resolution.y - vec2(resolution.x / resolution.y / 2., 0.5);
-    seed = time * uv.x + uv.y;
-
-    vec3 rayDirection = normalize(vec3(uv, 1.));
+    vec2 uv = gl_FragCoord.xy / sy - asp_rat;
+    
+    vec3 rayDirection = normalize(vec3(uv, asp_rat * 4.));
     rayDirection.zy *= rot(u_mouse.y);
     rayDirection.xz *= rot(u_mouse.x);
+    vec3 col = vec3(1.0);
     
-    vec3 col = vec3(0);// = traceRay(rayOrigin, rayDirection);
-    
-//    int samples = 16;
-    for(int i = 0; i < samples; i++){
-        col += traceRay(rayOrigin, rayDirection);
-        seed = random(rayDirection * seed);
+    if (!trace){
+        // realtime ray marching
+        float dist = rayMarch_s(ro, rayDirection);
+        col = vec3(getLight(ro + rayDirection * dist, ro));
     }
-    col = col / float(samples);
-    
-    float white = 20.0;
-    col *= white * 16.0;
-    col = (col * (1.0 + col / white / white)) / (1.0 + col);
-    
-//    col *= 2.;
-    
-//    vec3 sampleCol = texture(u_sample, gl_TexCoord[0].xy).rgb;
-//    col = mix(sampleCol, col, u_sample_part);
-    
+    else {
+        // raytrace ray marching
+        col = rayMarch(ro, rayDirection);
+        col *= col;
+//        col *= 500.;
+        float white = 100.0;
+        col *= white * 16.;
+        col = (col * (1.0 + col / white / white)) / (1.0 + col);
+    }
+
     gl_FragColor = vec4(col, alpha);
 }
