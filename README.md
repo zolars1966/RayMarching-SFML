@@ -1,5 +1,5 @@
-# RayMarching-SFML
-C++ and GLSL with SFML version of Ray-Marching Algorithm (I'm too lazy for explaining this)
+# Ray-Marching SFML
+C++ and GLSL with SFML version of Ray Marching Algorithm (I'm too lazy for explaining this)
 
 # Videos
 
