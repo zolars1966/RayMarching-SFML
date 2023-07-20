@@ -3,6 +3,13 @@
 # Ray-Marching SFML
 C++ and GLSL with SFML version of Ray Marching Algorithm (I'm too lazy for explaining this)
 
+# Releases
+Verison 1.0 if released. You can download already built build for ARM Apple Silicon Macs or you can donwload the source code and compile it for your system
+
+Note: with compiling it by yourself, you can mamage the SDF functions and change the Scene.
+
+[RELEASES](https://github.com/zolars1966/RayMarching-SFML/releases)
+
 # Videos
 
 ## Presentation (video demo, no audio, coming soon)
