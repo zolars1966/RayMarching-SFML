@@ -1,4 +1,4 @@
-[![Back](https://user-images.githubusercontent.com/70763346/205440694-aa92ef86-80c0-4935-855b-34f0fdddd160.png)](https://ckreesher.github.io/)
+[![Back](https://user-images.githubusercontent.com/70763346/205440694-aa92ef86-80c0-4935-855b-34f0fdddd160.png)](https://zolars1966.github.io/)
 
 # Ray-Marching SFML
 C++ and GLSL with SFML version of Ray Marching Algorithm (I'm too lazy for explaining this)
@@ -33,4 +33,4 @@ https://github.com/ckreesher/RayMarching-SFML/assets/70763346/89b21831-3987-4e74
 ![0001](https://github.com/ckreesher/RayMarching-SFML/assets/70763346/adefa90b-1e25-439d-ba8b-1ecc6ede5259)
 ![screenshot](https://github.com/ckreesher/RayMarching-SFML/assets/70763346/2dee52fa-0079-4642-9233-13e69151587b)
 
-[![Back](https://user-images.githubusercontent.com/70763346/205440694-aa92ef86-80c0-4935-855b-34f0fdddd160.png)](https://ckreesher.github.io/)
+[![Back](https://user-images.githubusercontent.com/70763346/205440694-aa92ef86-80c0-4935-855b-34f0fdddd160.png)](https://zolars1966.github.io/)
